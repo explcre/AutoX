@@ -1,4 +1,7 @@
 from autox.autox import AutoX
+from autox.autox_competition.util import log
+from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
+import re
 
 class OpenMLDB_sql_gen():
     def __init__(self, target, train_name, test_name, path, time_series=False, ts_unit=None, time_col=None,
@@ -50,10 +53,16 @@ class OpenMLDB_sql_gen():
         
         col_name_dict={}
         col_name_dict['time']=['pickup_datetime', 'dropoff_datetime']
-        col_name_dict['num']=['pickup_latitude', 'dropoff_latitude', 'pickup_longtitude', 'dropoff_longtitude','vendor_id']
-        col_name_dict['cat']=[]
+        col_name_dict['num']= ['pickup_latitude', 'dropoff_latitude', 'pickup_longtitude', 'dropoff_longtitude','vendor_id', 'passenger_count', 'trip_duration']
+        col_name_dict['cat']=['vendor_id', 'id', 'store_and_fwd_flag']
         
-        function_list=['sum', 'avg', 'min', 'max',  'log', 'count']
+        function_list=['sum', 'avg', 'min', 'max',  'log', 'count', 'lag0']
+        lag_num_list=shift_dict['day']
+        for l, lag_num in enumerate(lag_num_list):
+            function_list.append('lag'+str(lag_num))
+            function_list.append('lag'+str(lag_num)+'-0')
+        
+        
         table_list=['t1']
         '''
         w AS (PARTITION BY vendor_id ORDER BY pickup_datetime ROWS_RANGE BETWEEN 1d PRECEDING AND CURRENT ROW),
@@ -62,12 +71,18 @@ class OpenMLDB_sql_gen():
         
         window_list=[]
         
-        window_dict_t={"name":"w1", "PARTITION BY":"vendor_id", 
-        "ORDER BY":"pickup_datetime", "ROWS":"ROWS_RANGE","BETWEEN":"1d", 
+        window_dict_t={"name":"w1", 
+        "PARTITION BY":"vendor_id", 
+        "ORDER BY":"pickup_datetime",
+        "ROWS":"ROWS_RANGE",
+        "BETWEEN":"1d", 
         "PRE":"PRECEDING AND CURRENT ROW"
         }
-        window_dict_t2={"name":"w2", "PARTITION BY":"passenger_count", 
-        "ORDER BY":"pickup_datetime", "ROWS":"ROWS_RANGE","BETWEEN":"1d", 
+        window_dict_t2={"name":"w2", 
+        "PARTITION BY":"passenger_count", 
+        "ORDER BY":"pickup_datetime",
+        "ROWS":"ROWS_RANGE",
+        "BETWEEN":"1d", 
         "PRE":"PRECEDING AND CURRENT ROW"
         }
         '''
@@ -80,16 +95,37 @@ class OpenMLDB_sql_gen():
         window_list.append(window_dict_t)
         window_list.append(window_dict_t2)
         sql="SELECT "
-        
+        multi_operator_func_list=['lag']
         #current_window_name="w1"
         for w, window in enumerate(window_list):
             
-            for i, col_name in enumerate(col_name_dict['num']):
+            for col_name_i, col_name in enumerate(col_name_dict['num']):
                 sql+=col_name
                 sql+=","
-                for j,  func in  enumerate(function_list):
-                    sql+=func
-                    sql+=('('+col_name+')')
+                for func_i,  func in  enumerate(function_list):
+                    have_multi_op=False
+                    multi_op_index=0
+                    for op_i, op in enumerate(multi_operator_func_list):
+                        if func.startswith(op):
+                            sql+=op
+                            have_multi_op=True
+                            multi_op_index=op_i
+                            break
+                    '''
+                    if have_multi_op:
+                        sql+=multi_operator_func_list[multi_op_index]
+                    '''
+                    if not have_multi_op:
+                        sql+=func
+                    sql+='('+col_name
+                    if have_multi_op:
+                        sql+=","
+                        func_splited=re.split("[-|\+|\*|\/]",func)
+                        #func_splited=func.split("\-|\+|\*|\/")
+                        sql+=func_splited[0][len(multi_operator_func_list[multi_op_index]):]
+                        
+                    
+                    sql+=')'
                     sql+=" OVER "
                     sql+=window["name"]
                     sql+=" AS "
@@ -131,10 +167,10 @@ class OpenMLDB_sql_gen():
 
 if __name__ == '__main__':
     #demo dataset can be downloaded in the following website
-#https://www.kaggle.com/c/nyc-taxi-trip-duration/overview
-# 选择数据集
+    #https://www.kaggle.com/c/nyc-taxi-trip-duration/overview
+    # 选择数据集
     data_name = './nyc-taxi-trip-duration/'#'汽车销量预测'
-    path = f'./nyc-taxi-trip-duration/'#'../../data/{data_name}'
+    path = './nyc-taxi-trip-duration/'#'../../data/{data_name}'
     #id	vendor_id	pickup_datetime	dropoff_datetime	passenger_count	pickup_longitude	pickup_latitude	dropoff_longitude	dropoff_latitude	store_and_fwd_flag	trip_duration
     #id2875421	2	2016/3/14 17:24	2016/3/14 17:32	1	-73.98215485	40.76793671	-73.96463013	40.76560211	N	455
 
