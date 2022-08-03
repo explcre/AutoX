@@ -2,6 +2,7 @@ from autox.autox import AutoX
 from autox.autox_competition.util import log
 from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
 import re
+import requests
 
 class OpenMLDB_sql_generator():
     def __init__(self, target, train_name, test_name, path, time_series=False, ts_unit=None, time_col=None,
@@ -246,6 +247,7 @@ if __name__ == '__main__':
             'trip_duration':'num'
         }
     }
+    
     myOpenMLDB_sql_generator = OpenMLDB_sql_generator(target = 'trip_duration', train_name = 'train2.csv', test_name = 'test2.csv',
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
                    feature_type = feature_type)
@@ -258,8 +260,19 @@ if __name__ == '__main__':
     
     ########################
     #TODO: send query to OpenMLDB and get processed feature data csv file
-    
+    url ='http://127.0.0.1:8080/dbs/demo_db/deployments/demo_data_service'#'http://127.0.0.1:8080/dbs/{db} '
+    #payload = open("request.json")
+    '''
+    file_num=1
+    deploy_service_name="feature_data_test_auto_sql_generator"+str(file_num)
+    deploy_sql="DEPLOY "+deploy_service_name+" "+output_sql
+    '''
+    data=' "sql":output_sql, "mode":"online" '
+    headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
+    r = requests.post(url, data=data, headers=headers)
     ########################
+    
+    
     autox = AutoX(target = 'trip_duration', train_name = 'train2.csv', test_name = 'test2.csv',
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
                    feature_type = feature_type)
@@ -280,5 +293,12 @@ if __name__ == '__main__':
     
     ########################
     #TODO: send query to OpenMLDB and get final top-k feature data csv file
+    url ='http://127.0.0.1:8080/dbs/demo_db/deployments/demo_data_service'#'http://127.0.0.1:8080/dbs/{db} '
+    file_num=1
+    deploy_service_name="feature_data_test_auto_sql_generator"+str(file_num)
+    deploy_sql="DEPLOY "+deploy_service_name+" "+final_sql
+    data=' "sql":deploy_sql, "mode":"online" '
+    headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
+    r = requests.post(url, data=data, headers=headers)
     
     ########################
