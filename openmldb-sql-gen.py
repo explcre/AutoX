@@ -1,9 +1,10 @@
-from autox.autox import AutoX
-from autox.autox_competition.util import log
-from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
+#from autox.autox import AutoX
+#from autox.autox_competition.util import log
+#from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
 import re
 import requests
-
+import os
+import pandas as pd
 class OpenMLDB_sql_generator():
     def __init__(self, target, train_name, test_name, path, time_series=False, ts_unit=None, time_col=None,
                      metric='rmse', feature_type = {}, relations = [], id = [], task_type = 'regression',
@@ -23,7 +24,7 @@ class OpenMLDB_sql_generator():
             self.info_['time_col'] = time_col
             self.info_['image_info'] = image_info
             self.info_['target_map'] = target_map
-            
+            '''
             if Debug:
                 log("Debug mode, sample data")
                 self.dfs_[train_name] = self.dfs_[train_name].sample(5000)
@@ -33,6 +34,7 @@ class OpenMLDB_sql_generator():
                     feature_type_recognition = Feature_type_recognition()
                     feature_type = feature_type_recognition.fit(df)
                     self.info_['feature_type'][table_name] = feature_type
+            '''
 
     def add_feature_column(self, original_feature_type, processsed_column_name_list):
         print("")
@@ -117,8 +119,9 @@ class OpenMLDB_sql_generator():
         for w, window in enumerate(window_list):
             
             for col_name_i, col_name in enumerate(col_name_dict['num']):
-                sql+=col_name
-                sql+=","
+                if w ==0:
+                    sql+=col_name
+                    sql+=","
                 for func_i,  func in  enumerate(function_list):
                     have_multi_op=False
                     multi_op_index=0
@@ -177,14 +180,15 @@ class OpenMLDB_sql_generator():
             else:
                 sql+="),\n"
         
-        file_num=3
-        file_name="feature_data_test_auto_sql_generator"+str(file_num)
+        file_num=0
+        file_name="feature_data_test_auto_sql_generator-22-8-2-demo"+str(file_num)
         
         sql+="INTO OUTFILE '/tmp/%s';"%file_name
         print("*"*50)       
         print(sql)
         print("*"*50)
-        return sql,( self.add_feature_column(self.info_['feature_type'], processsed_column_name_list))
+        processed_feature_type=self.add_feature_column(self.info_['feature_type'], processsed_column_name_list)
+        return sql,processed_feature_type, file_name
         
         
     def decode_time_series_feature_sql_column(self, topk_feature_list):
@@ -193,6 +197,31 @@ class OpenMLDB_sql_generator():
         return sql
         
         
+
+#将所有文件的路径放入到listcsv列表中
+def list_dir(file_dir):
+    list_csv = []
+    dir_list = os.listdir(file_dir)
+    for cur_file in dir_list:
+        path = os.path.join(file_dir,cur_file)
+        #判断是文件夹还是文件
+        if os.path.isfile(path):
+            # print("{0} : is file!".format(cur_file))
+            dir_files = os.path.join(file_dir, cur_file)
+        #判断是否存在.csv文件，如果存在则获取路径信息写入到list_csv列表中
+        if os.path.splitext(path)[1] == '.csv':
+            csv_file = os.path.join(file_dir, cur_file)
+            # print(os.path.join(file_dir, cur_file))
+            # print(csv_file)
+            list_csv.append(csv_file)
+        if os.path.isdir(path):
+            # print("{0} : is dir".format(cur_file))
+            # print(os.path.join(file_dir, cur_file))
+            list_dir(path)
+    return list_csv, dir_files
+
+
+
 
 if __name__ == '__main__':
     #demo dataset can be downloaded in the following website
@@ -252,27 +281,39 @@ if __name__ == '__main__':
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
                    feature_type = feature_type)
                    
-    output_sql, processsed_feature_type=myOpenMLDB_sql_generator.time_series_feature_sql()
+    output_sql, processsed_feature_type, file_name=myOpenMLDB_sql_generator.time_series_feature_sql()
     print("*"*25+"processed_feature_type"+"*"*25)
     print(processsed_feature_type)
     print("*"*80)
     
-    
+    '''
     ########################
     #TODO: send query to OpenMLDB and get processed feature data csv file
-    url ='http://127.0.0.1:8080/dbs/demo_db/deployments/demo_data_service'#'http://127.0.0.1:8080/dbs/{db} '
+    url ='http://127.0.0.1:9080/dbs/demo_db/'#'http://127.0.0.1:8080/dbs/{db} '
     #payload = open("request.json")
-    '''
-    file_num=1
-    deploy_service_name="feature_data_test_auto_sql_generator"+str(file_num)
-    deploy_sql="DEPLOY "+deploy_service_name+" "+output_sql
-    '''
-    data=' "sql":output_sql, "mode":"online" '
+    data='{"sql":%s, "mode":"online"}'%output_sql
     headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
     r = requests.post(url, data=data, headers=headers)
+    print("request:")
+    print(r.text)
     ########################
+    '''
+    path_output="/tmp/"+file_name
+    csv_list, dir_files=list_dir(file_dir=path_output)
+    print(csv_list)
+    for csv in csv_list:
+        single_data_frame = pd.read_csv(csv)
+        #     print(single_data_frame.info())
+        if csv == csv_list[0]:
+            all_data_frame = single_data_frame
+            print(all_data_frame)
+        else:  # concatenate all csv to a single dataframe, ingore index
+            all_data_frame = pd.concat([all_data_frame, single_data_frame], ignore_index=True)
+            print(all_data_frame)
+
+    print(all_data_frame)
     
-    
+    '''
     autox = AutoX(target = 'trip_duration', train_name = 'train2.csv', test_name = 'test2.csv',
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
                    feature_type = feature_type)
@@ -293,7 +334,7 @@ if __name__ == '__main__':
     
     ########################
     #TODO: send query to OpenMLDB and get final top-k feature data csv file
-    url ='http://127.0.0.1:8080/dbs/demo_db/deployments/demo_data_service'#'http://127.0.0.1:8080/dbs/{db} '
+    url ='http://127.0.0.1:9080/dbs/demo_db/deployments/demo_data_service'#'http://127.0.0.1:8080/dbs/{db} '
     file_num=1
     deploy_service_name="feature_data_test_auto_sql_generator"+str(file_num)
     deploy_sql="DEPLOY "+deploy_service_name+" "+final_sql
@@ -302,3 +343,4 @@ if __name__ == '__main__':
     r = requests.post(url, data=data, headers=headers)
     
     ########################
+    '''
