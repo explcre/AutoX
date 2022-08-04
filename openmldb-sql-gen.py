@@ -1,10 +1,11 @@
-#from autox.autox import AutoX
-#from autox.autox_competition.util import log
-#from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
+from autox.autox import AutoX
+from autox.autox_competition.util import log
+from autox.autox_competition.process_data.feature_type_recognition import Feature_type_recognition
 import re
 import requests
 import os
 import pandas as pd
+from sklearn.model_selection import train_test_split
 class OpenMLDB_sql_generator():
     def __init__(self, target, train_name, test_name, path, time_series=False, ts_unit=None, time_col=None,
                      metric='rmse', feature_type = {}, relations = [], id = [], task_type = 'regression',
@@ -12,6 +13,7 @@ class OpenMLDB_sql_generator():
             self.Debug = Debug
             self.info_ = {}
             self.info_['id'] = id
+            self.info_['path'] = path
             self.info_['task_type'] = task_type
             self.info_['target'] = target
             self.info_['feature_type'] = feature_type
@@ -24,7 +26,7 @@ class OpenMLDB_sql_generator():
             self.info_['time_col'] = time_col
             self.info_['image_info'] = image_info
             self.info_['target_map'] = target_map
-            '''
+            
             if Debug:
                 log("Debug mode, sample data")
                 self.dfs_[train_name] = self.dfs_[train_name].sample(5000)
@@ -34,17 +36,23 @@ class OpenMLDB_sql_generator():
                     feature_type_recognition = Feature_type_recognition()
                     feature_type = feature_type_recognition.fit(df)
                     self.info_['feature_type'][table_name] = feature_type
-            '''
+            
 
-    def add_feature_column(self, original_feature_type, processsed_column_name_list):
+    def add_feature_column(self,  processsed_column_name_list, new_csv_filename):
         print("")
         
-        feature_type=original_feature_type
+        feature_type={}#self.info_['feature_type']
+        feature_type[new_csv_filename+"_train.csv"]={}
+        feature_type[new_csv_filename+"_test.csv"]={}
         for i in processsed_column_name_list:
-            for csv_list in feature_type:
-                feature_type[csv_list][i]="num"
+            #for csv_list in feature_type:
+            #    feature_type[csv_list][i]="num"
+            feature_type[new_csv_filename+"_train.csv"][i]="num"
+            if not i== self.info_['target']:
+                feature_type[new_csv_filename+"_test.csv"][i]="num"
+            #TODO:check wether all "num"
             
-        print(feature_type['train2.csv'])
+        #print(feature_type['train2.csv'])
         return  feature_type
 
 
@@ -115,7 +123,7 @@ class OpenMLDB_sql_generator():
         sql="SELECT "
         multi_operator_func_list=['lag']
         #current_window_name="w1"
-        processsed_column_name_list=[]
+        processsed_column_name_list=pd.read_csv(self.info_['path']+self.info_['train_name']).columns.values.tolist()#[]
         for w, window in enumerate(window_list):
             
             for col_name_i, col_name in enumerate(col_name_dict['num']):
@@ -187,13 +195,15 @@ class OpenMLDB_sql_generator():
         print("*"*50)       
         print(sql)
         print("*"*50)
-        processed_feature_type=self.add_feature_column(self.info_['feature_type'], processsed_column_name_list)
+        processed_feature_type=self.add_feature_column( processsed_column_name_list, "output_"+file_name)
         return sql,processed_feature_type, file_name
         
         
     def decode_time_series_feature_sql_column(self, topk_feature_list):
         sql=""
-        
+        for i, feature_column_name in enumerate(topk_feature_list):
+            
+            pass
         return sql
         
         
@@ -229,6 +239,7 @@ if __name__ == '__main__':
     # 选择数据集
     data_name = './nyc-taxi-trip-duration/'#'汽车销量预测'
     path = './nyc-taxi-trip-duration/'#'../../data/{data_name}'
+    target_column_name='trip_duration'
     #id	vendor_id	pickup_datetime	dropoff_datetime	passenger_count	pickup_longitude	pickup_latitude	dropoff_longitude	dropoff_latitude	store_and_fwd_flag	trip_duration
     #id2875421	2	2016/3/14 17:24	2016/3/14 17:32	1	-73.98215485	40.76793671	-73.96463013	40.76560211	N	455
 
@@ -277,7 +288,7 @@ if __name__ == '__main__':
         }
     }
     
-    myOpenMLDB_sql_generator = OpenMLDB_sql_generator(target = 'trip_duration', train_name = 'train2.csv', test_name = 'test2.csv',
+    myOpenMLDB_sql_generator = OpenMLDB_sql_generator(target =target_column_name , train_name = 'train2.csv', test_name = 'test2.csv',
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
                    feature_type = feature_type)
                    
@@ -308,21 +319,35 @@ if __name__ == '__main__':
             all_data_frame = single_data_frame
             print(all_data_frame)
         else:  # concatenate all csv to a single dataframe, ingore index
-            all_data_frame = pd.concat([all_data_frame, single_data_frame], ignore_index=True)
+            all_data_frame = pd.concat([all_data_frame, single_data_frame], axis=0)
             print(all_data_frame)
 
     print(all_data_frame)
     
-    '''
-    autox = AutoX(target = 'trip_duration', train_name = 'train2.csv', test_name = 'test2.csv',
+    
+    
+    #all_data_frame.to_csv(path+train_name,index=False,sep=',')
+    #y_train=all_data_frame[target_column_name]
+    #x_train=all_data_frame.drop(target_column_name, axis=1)\
+    
+    train_set, test_set_with_y=train_test_split(all_data_frame, train_size=0.8)
+    
+
+    print(train_set)
+    print(test_set_with_y)
+    train_name='output_'+file_name+'_train.csv'
+    train_set.to_csv(path+train_name,index=False,sep=',')
+    test_set=test_set_with_y.drop(columns=target_column_name)#pd.concat([x_train, y_train], axis=1)
+    test_name='output_'+file_name+'_test.csv'
+    test_set.to_csv(path+test_name,index=False,sep=',')
+    
+    autox = AutoX(target = target_column_name, train_name =train_name, test_name = test_name,
                    id = ['id', 'vendor_id'], path = path, time_series=True, ts_unit='min',time_col = ['pickup_datetime','dropoff_datetime'],
-                   feature_type = feature_type)
+                   feature_type = processsed_feature_type)# train_name = 'train2.csv'#feature_type=feature_type
                    
                    
-    top_features, train_fe, test_fe = autox.get_top_features_ts()
+    top_features, train_fe, test_fe = autox.get_top_features()
     print(top_features)
-
-
     train_fe.head()
     test_fe.head()
     
@@ -343,4 +368,4 @@ if __name__ == '__main__':
     r = requests.post(url, data=data, headers=headers)
     
     ########################
-    '''
+    
