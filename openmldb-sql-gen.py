@@ -38,13 +38,13 @@ class OpenMLDB_sql_generator():
                     self.info_['feature_type'][table_name] = feature_type
             
 
-    def add_feature_column(self,  processsed_column_name_list, new_csv_filename):
+    def add_feature_column(self,  processed_column_name_list, new_csv_filename):
         print("")
         
         feature_type={}#self.info_['feature_type']
         feature_type[new_csv_filename+"_train.csv"]={}
         feature_type[new_csv_filename+"_test.csv"]={}
-        for i in processsed_column_name_list:
+        for i in processed_column_name_list:
             #for csv_list in feature_type:
             #    feature_type[csv_list][i]="num"
             feature_type[new_csv_filename+"_train.csv"][i]="num"
@@ -71,15 +71,22 @@ class OpenMLDB_sql_generator():
         shift_dict={}
         shift_dict['year']=[1, 2, 3, 4,5, 10, 20]
         shift_dict['month']=[1, 2, 3, 4, 8, 12, 24,60, 120]
-        shift_dict['day']=[1, 2, 3, 7, 14, 21, 30]#, 60, 90, 182, 365]
+        shift_dict['day']=[1, 2, 3, 7, 14, 21, 30, 60]#, 90, 182, 365]
         shift_dict['minute']=[1, 2, 3, 5, 10, 15, 30, 45, 60, 120, 240,720, 1440]
         
         col_name_dict={}
-        col_name_dict['time']=['pickup_datetime', 'dropoff_datetime']
-        col_name_dict['num']= ['pickup_latitude', 'dropoff_latitude', 'pickup_longitude', 'dropoff_longitude', 'passenger_count', 'trip_duration']
-        col_name_dict['cat']=['vendor_id', 'id', 'store_and_fwd_flag']
+        col_name_dict['datetime']=[]
+        col_name_dict['num']=[]
+        col_name_dict['cat']=[]
+        for k, v in self.info_['feature_type'][self.info_['train_name']].items():
+            if (k) not in col_name_dict[v]:
+                col_name_dict[v].append(k)
+        #col_name_dict['datetime']=['pickup_datetime', 'dropoff_datetime']
+        #col_name_dict['num']= ['pickup_latitude', 'dropoff_latitude', 'pickup_longitude', 'dropoff_longitude', 'passenger_count']#, 'trip_duration']
+        #col_name_dict['cat']=['vendor_id', 'id', 'store_and_fwd_flag']
         
-        function_list=['sum', 'avg', 'min', 'max', 'lag0',   'count']#,'log', 'lag0']
+        
+        function_list=['sum', 'avg', 'min', 'max',   'count', 'log', 'lag0']# ,'log','lag0']
         lag_num_list=shift_dict['day']
         toUseLag=True
         if toUseLag:
@@ -95,16 +102,16 @@ class OpenMLDB_sql_generator():
         w2 AS (PARTITION BY passenger_count ORDER BY pickup_datetime ROWS_RANGE BETWEEN 1d PRECEDING AND CURRENT ROW);
         '''
         
-        window_list=[]
+        self.window_list=[]
         
-        window_dict_t={"name":"w1", 
+        self.window_dict_t={"name":"w1", 
         "PARTITION BY":"vendor_id", 
         "ORDER BY":"pickup_datetime",
         "ROWS":"ROWS_RANGE",
         "BETWEEN":"1d", 
         "PRE":"PRECEDING AND CURRENT ROW"
         }
-        window_dict_t2={"name":"w2", 
+        self.window_dict_t2={"name":"w2", 
         "PARTITION BY":"passenger_count", 
         "ORDER BY":"pickup_datetime",
         "ROWS":"ROWS_RANGE",
@@ -118,24 +125,26 @@ class OpenMLDB_sql_generator():
         window_dict_t['name']="w"
         window_dict_t['PRE']="w"
         '''
-        window_list.append(window_dict_t)
-        window_list.append(window_dict_t2)
+        self.window_list.append(self.window_dict_t)
+        self.window_list.append(self.window_dict_t2)
         sql="SELECT "
         multi_operator_func_list=['lag']
         #current_window_name="w1"
-        processsed_column_name_list=pd.read_csv(self.info_['path']+self.info_['train_name']).columns.values.tolist()#[]
-        for w, window in enumerate(window_list):
+        self.processed_column_name_list=pd.read_csv(self.info_['path']+self.info_['train_name']).columns.values.tolist()#[]
+        for w, window in enumerate(self.window_list):
             
             for col_name_i, col_name in enumerate(col_name_dict['num']):
                 if w ==0:
                     sql+=col_name
                     sql+=","
+                    
                 for func_i,  func in  enumerate(function_list):
                     have_multi_op=False
                     multi_op_index=0
                     func_processed_name=func.replace("-", "minus").replace("+", "add").replace("*", "multiply").replace("/", "divide")
+                    
                     for op_i, op in enumerate(multi_operator_func_list):
-                        if func.startswith(op):
+                        if func.startswith(op) and len(func)>len(op):
                             sql+=op
                             have_multi_op=True
                             multi_op_index=op_i
@@ -147,19 +156,30 @@ class OpenMLDB_sql_generator():
                     if not have_multi_op:
                         sql+=func
                     sql+='('+col_name
-                    if have_multi_op:
+                    op_list=['-', '+', '*', '/']
+                    if have_multi_op: #and any(op2 in func[len(multi_operator_func_list[multi_op_index])-1:] for op2 in op_list):
                         sql+=","
-                        func_splited=re.split("[-|\+|\*|\/]",func)
+                        func_splited=re.split("([-|\+|\*|\/])",func)
                         #func_splited=func.split("\-|\+|\*|\/")
                         sql+=func_splited[0][len(multi_operator_func_list[multi_op_index]):]
-                        
-                    
+                        #print("DEBUG:func_splited")
+                        #print(func_splited)
+                        if len(func_splited)>1 and func_splited[1] in op_list:
+                            sql+=')'
+                            sql+= func_splited[1]
+                            if len(func_splited)>2:
+                                sql+=multi_operator_func_list[multi_op_index]#func_splited[0][len(multi_operator_func_list[multi_op_index]):]
+                                sql+='('+col_name+','
+                                sql+= func_splited[2]
+                            else:
+                                sql+='0'
+                            pass
                     sql+=')'
                     sql+=" OVER "
                     sql+=window["name"]
                     sql+=" AS "
                     sql+=(func_processed_name+"_"+col_name+"_"+window["name"])
-                    processsed_column_name_list.append(func_processed_name+"_"+col_name+"_"+window["name"])
+                    self.processed_column_name_list.append(func_processed_name+"_"+col_name+"_"+window["name"])
                     sql+=","
                     sql+="\n "
                 '''
@@ -175,7 +195,7 @@ class OpenMLDB_sql_generator():
         sql+="\n "
         
         sql+=" WINDOW "
-        for p, window_now in enumerate(window_list):
+        for p, window_now in enumerate(self.window_list):
             sql+=window_now["name"]
             sql+=" AS ("
             sql+="PARTITION BY "+window_now["PARTITION BY"]
@@ -183,30 +203,35 @@ class OpenMLDB_sql_generator():
             sql+= " "+window_now["ROWS"]
             sql+=" BETWEEN "+window_now["BETWEEN"]
             sql+=" "+window_now["PRE"]
-            if p==len(window_list)-1:
+            if p==len(self.window_list)-1:
                 sql+=")\n"
             else:
                 sql+="),\n"
         
-        file_num=0
+        file_num=2
         file_name="feature_data_test_auto_sql_generator-22-8-2-demo"+str(file_num)
         
         sql+="INTO OUTFILE '/tmp/%s';"%file_name
         print("*"*50)       
         print(sql)
         print("*"*50)
-        processed_feature_type=self.add_feature_column( processsed_column_name_list, "output_"+file_name)
+        processed_feature_type=self.add_feature_column( self.processed_column_name_list, "output_"+file_name)
         return sql,processed_feature_type, file_name
         
         
     def decode_time_series_feature_sql_column(self, topk_feature_list):
         sql=""
+        pd.read_csv(self.info_['path']+self.info_['train_name']).columns.values.tolist()#[]
+        sql_selected_column_name_list=[]
         for i, feature_column_name in enumerate(topk_feature_list):
-            
-            pass
+            if feature_column_name in self.processed_column_name_list and \
+                    feature_column_name not in sql_selected_column_name_list :
+                sql_selected_column_name_list.append(feature_column_name)
+            else:
+                pass
+                
+        
         return sql
-        
-        
 
 #将所有文件的路径放入到listcsv列表中
 def list_dir(file_dir):
@@ -347,10 +372,12 @@ if __name__ == '__main__':
                    
                    
     top_features, train_fe, test_fe = autox.get_top_features()
+    
     print(top_features)
     train_fe.head()
     test_fe.head()
     
+    #top_features=test_set.columns.values.tolist()#should be removed if AutoX is in the pipeline
     
     final_sql=myOpenMLDB_sql_generator.decode_time_series_feature_sql_column(top_features)
     print("*"*25+"final_sql"+"*"*25)
