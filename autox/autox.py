@@ -17,6 +17,8 @@ from autox.autox_competition.process_data.feature_type_recognition import Featur
 from autox.autox_competition.util import log
 from autox.autox_competition.feature_engineer import FeatureShiftTS, FeatureRollingStatTS, FeatureExpWeightedMean
 from autox.autox_competition.models.regressor_ts import LgbRegressionTs, XgbRegressionTs
+import pandas as pd
+
 
 class AutoX():
     """AutoX主函数描述"""
@@ -27,6 +29,7 @@ class AutoX():
         self.Debug = Debug
         self.info_ = {}
         self.info_['id'] = id
+        self.info_['path'] = path
         self.info_['task_type'] = task_type
         self.info_['target'] = target
         self.info_['feature_type'] = feature_type
@@ -322,12 +325,30 @@ class AutoX():
         fimp = self.model_lgb.feature_importances_
         log("feature importance")
         log(fimp)
+        ##############
+        fimp.to_csv(self.info_['path'] + self.info_['train_name'][:-9]+ 'feature_importance.csv')
+        pd.DataFrame(data=list(fimp['feature'])).to_csv(self.info_['path'] + self.info_['train_name'][:-9] + 'feature_importance_name_list.csv')
+        print("list(fimp['feature'])")
+        print(list(fimp['feature']))
+        print("df.columns")
+        print(df.columns)
+        ##############
 
         topk_feas = [x for x in list(fimp['feature']) if x not in df.columns][:topk]
+
+        ###############
+        print("topk_feas")
+        print(topk_feas)
+        print("self.train[id_ + topk_feas]")
+        print(self.train[id_ + topk_feas])
+        print("self.test[id_ + topk_feas]")
+        print(self.test[id_ + topk_feas])
+        ################
+
         if return_df:
-            return topk_feas, self.train[id_ + topk_feas], self.test[id_ + topk_feas]
+            return fimp,topk_feas, self.train[id_ + topk_feas], self.test[id_ + topk_feas]
         else:
-            return topk_feas
+            return fimp,topk_feas
 
     def get_submit_ts(self):
 
