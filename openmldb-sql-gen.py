@@ -33,7 +33,6 @@ class OpenMLDB_sql_generator():
         for k in self.info_['feature_type'][self.info_['train_name']]:
             self.original_column_name_list.append(k)
 
-
         if Debug:
             log("Debug mode, sample data")
             self.dfs_[train_name] = self.dfs_[train_name].sample(5000)
@@ -56,7 +55,7 @@ class OpenMLDB_sql_generator():
             feature_type[new_csv_filename + "_train.csv"][i] = "num"
             if not i == self.info_['target']:
                 feature_type[new_csv_filename + "_test.csv"][i] = "num"
-            # TODO:check wether all "num"
+            # TODO:check whether all "num"
 
         # print(feature_type['train2.csv'])
         return feature_type
@@ -91,7 +90,7 @@ class OpenMLDB_sql_generator():
         shift_dict = {}
         shift_dict['year'] = [1, 2, 3, 4, 5, 10, 20]
         shift_dict['month'] = [1, 2, 3, 4, 8, 12, 24, 60, 120]
-        shift_dict['day'] = [1, 2, 3, 7, 14, 21, 30, 60]  # , 90, 182, 365]
+        shift_dict['day'] = [1, 2, 3, 7, 14, 21, 30, 60 , 90, 182, 365]
         shift_dict['minute'] = [1, 2, 3, 5, 10, 15, 30, 45, 60, 120, 240, 720, 1440]
 
         col_name_dict = {}
@@ -118,9 +117,10 @@ class OpenMLDB_sql_generator():
         w AS (PARTITION BY vendor_id ORDER BY pickup_datetime ROWS_RANGE BETWEEN 1d PRECEDING AND CURRENT ROW),
         w2 AS (PARTITION BY passenger_count ORDER BY pickup_datetime ROWS_RANGE BETWEEN 1d PRECEDING AND CURRENT ROW);
         '''
-
+        shift_dict['window_range'] = [1, 2, 3, 7, 14, 21, 30, 60 , 90, 182, 365]
         self.window_list = []
-
+        #TODO: to automatic generate window dict :
+        # (PARTITION BY all categoric columns,ORDER BY all time columns, BETWEEN more minutes/hours/days/months/years)
         self.window_dict_t = {"name": "w1",
                               "PARTITION BY": "vendor_id",
                               "ORDER BY": "pickup_datetime",
@@ -153,18 +153,20 @@ class OpenMLDB_sql_generator():
             self.info_['path'] + self.info_['train_name']).columns.values.tolist()
         self.column_name2sql_dict={}
         for w, window in enumerate(self.window_list):
-            for col_name_i, col_name in enumerate(col_name_dict['cat']):
-                if w == 0:
-                    sql += col_name
-                    sql += ","
-            for col_name_i, col_name in enumerate(col_name_dict['datetime']):
+            for data_type_in_col_name_list,v_in_col_name_dict in col_name_dict.items():
+                for col_name_i, col_name in enumerate(col_name_dict[data_type_in_col_name_list]):
+                    if w == 0:
+                        sql += col_name
+                        sql += ","
+            '''for col_name_i, col_name in enumerate(col_name_dict['datetime']):
                 if w == 0:
                     sql += col_name
                     sql += ","
             for col_name_i, col_name in enumerate(col_name_dict['num']):
                 if w == 0:
                     sql += col_name
-                    sql += ","
+                    sql += ","'''
+            for col_name_i, col_name in enumerate(col_name_dict['num']):
                 if not col_name == self.info_['target']:
                     for func_i, func in enumerate(function_list):
                         have_multi_op = False
@@ -242,14 +244,14 @@ class OpenMLDB_sql_generator():
 
         file_num = 2
         file_name = "feature_data_test_auto_sql_generator-22-8-2-demo" + str(file_num)
-
-        sql += "INTO OUTFILE '/tmp/%s';" % file_name
+        save_sql="INTO OUTFILE '/tmp/%s';" % file_name
+        sql += save_sql
 
         print("*" * 50)
         print(sql)
         print("*" * 50)
         processed_feature_type = self.add_feature_column(self.processed_column_name_list, "output_" + file_name)
-        return sql, processed_feature_type, file_name
+        return sql,save_sql, processed_feature_type, file_name
 
     def decode_time_series_feature_sql_column(self, topk_feature_list):
         sql = ""
@@ -278,20 +280,12 @@ class OpenMLDB_sql_generator():
         file_num = 2
         file_name ="deploy_"+ "feature_data_test_auto_sql_generator-22-8-2-demo" + str(file_num)
 
-        sql += "INTO OUTFILE '/tmp/%s';" % file_name
-        '''
-        for i, feature_column_name in enumerate(topk_feature_list):
-            if feature_column_name in self.processed_column_name_list and \
-                    feature_column_name not in sql_selected_column_name_list:
-                sql_selected_column_name_list.append(feature_column_name)
-            else:
-                pass
-        '''
-
+        #sql += "INTO OUTFILE '/tmp/%s';" % file_name #may be commented when deploy#2022-8-19
+        sql += ";"
         return sql
 
 
-# 将所有文件的路径放入到listcsv列表中
+# put all file's pathname into list "listcsv"
 def list_dir(file_dir):
     list_csv = []
     dir_list = os.listdir(file_dir)
@@ -315,15 +309,13 @@ def list_dir(file_dir):
 
 
 if __name__ == '__main__':
-    # demo dataset can be downloaded in the following website
+    # demo dataset can be downloaded in the following website:
     # https://www.kaggle.com/c/nyc-taxi-trip-duration/overview
-    # 选择数据集
-    data_name = './nyc-taxi-trip-duration/'  # '汽车销量预测'
+
     path = './nyc-taxi-trip-duration/'  # '../../data/{data_name}'
     target_column_name = 'trip_duration'
     # id	vendor_id	pickup_datetime	dropoff_datetime	passenger_count	pickup_longitude	pickup_latitude	dropoff_longitude	dropoff_latitude	store_and_fwd_flag	trip_duration
     # id2875421	2	2016/3/14 17:24	2016/3/14 17:32	1	-73.98215485	40.76793671	-73.96463013	40.76560211	N	455
-
     # c1,c2,c3,c4,c5,c6,date
     # aaa,11,22,1.2,11.3,1.6361E+12,2021/7/20
     feature_type = {
@@ -352,19 +344,6 @@ if __name__ == '__main__':
             'dropoff_latitude': 'num',
             'store_and_fwd_flag': 'cat',
             'trip_duration': 'num'
-        },
-        'train-day.csv': {
-            'id': 'cat',
-            'vendor_id': 'cat',
-            'pickup_date': 'datetime',
-            'dropoff_date': 'datetime',
-            'passenger_count': 'num',
-            'pickup_longitude': 'num',
-            'pickup_latitude': 'num',
-            'dropoff_longitude': 'num',
-            'dropoff_latitude': 'num',
-            'store_and_fwd_flag': 'cat',
-            'trip_duration': 'num'
         }
     }
 
@@ -374,23 +353,43 @@ if __name__ == '__main__':
                                                       ts_unit='min', time_col=['pickup_datetime', 'dropoff_datetime'],
                                                       feature_type=feature_type)
 
-    output_sql, processsed_feature_type, file_name = myOpenMLDB_sql_generator.time_series_feature_sql()
+    output_sql, output_save_sql,processsed_feature_type, file_name = myOpenMLDB_sql_generator.time_series_feature_sql()
     print("*" * 25 + "processed_feature_type" + "*" * 25)
     print(processsed_feature_type)
-    print("*" * 80)
+    print("*" * 40+"following is the 1st generated sql to send query to OpenMLDB and get processed feature data csv file"+"*"*40)
 
-    '''
     ########################
-    #TODO: send query to OpenMLDB and get processed feature data csv file
-    url ='http://127.0.0.1:9080/dbs/demo_db/'#'http://127.0.0.1:8080/dbs/{db} '
-    #payload = open("request.json")
-    data='{"sql":%s, "mode":"online"}'%output_sql
+    #send query to OpenMLDB and get processed feature data csv file
+    url ='http://127.0.0.1:9080/dbs/demo_db' #：9080#demo_db/'#'http://127.0.0.1:8080/dbs/{db} '
+    init_sql =  []
+    init_sql.append('CREATE DATABASE IF NOT EXISTS demo_db;')
+    init_sql.append('USE demo_db;')
+    init_sql.append('SET @@execute_mode="offline";')
+    init_sql.append('SET @@sync_job = "true";')
+    init_sql.append("CREATE TABLE IF NOT EXISTS t1(id string, vendor_id int, pickup_datetime timestamp, dropoff_datetime timestamp, passenger_count int, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, store_and_fwd_flag string, trip_duration int);")
+    #TODO: match the table name list here and in the class OpenMLDB_sql_generator()
+    init_sql.append("LOAD DATA INFILE '/work/taxi-trip/data/taxi_tour_table_train_simple.snappy.parquet' INTO TABLE t1 options(format='parquet', header=true, mode='append');")
+
+    for init_sql_i in init_sql:
+        print(init_sql_i)
+        data = {"sql": init_sql_i, "mode": "offsync"}  # offsync #original "online"
+        headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
+        r = requests.post(url, json=data, headers=headers)
+        print("request text:")
+        print(r.text)
+        print("request content")
+        print(r.content)
+
+    data={"sql":(output_sql) , "mode":"offsync"}   #offsync #original "online"
     headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
-    r = requests.post(url, data=data, headers=headers)
-    print("request:")
+    r = requests.post(url, json=data, headers=headers)
+    print("request text:")
     print(r.text)
+    print("request content")
+    print(r.content)
     ########################
-    '''
+
+
     path_output = "/tmp/" + file_name
     csv_list, dir_files = list_dir(file_dir=path_output)
     print(csv_list)
@@ -406,10 +405,6 @@ if __name__ == '__main__':
 
     print(all_data_frame)
 
-    # all_data_frame.to_csv(path+train_name,index=False,sep=',')
-    # y_train=all_data_frame[target_column_name]
-    # x_train=all_data_frame.drop(target_column_name, axis=1)\
-
     train_set, test_set_with_y = train_test_split(all_data_frame, train_size=0.8)
 
     print(train_set)
@@ -419,7 +414,7 @@ if __name__ == '__main__':
     test_set = test_set_with_y.drop(columns=target_column_name)  # pd.concat([x_train, y_train], axis=1)
     test_name = 'output_' + file_name + '_test.csv'
     test_set.to_csv(path + test_name, index=False, sep=',')
-
+    ########feature selecting##############
     autox = AutoX(target=target_column_name, train_name=train_name, test_name=test_name,
                   id=['id', 'vendor_id'], path=path, time_series=True, ts_unit='min',
                   time_col=['pickup_datetime', 'dropoff_datetime'],
@@ -431,7 +426,7 @@ if __name__ == '__main__':
     feature_importance.to_csv(path + file_name + 'feature_importance.csv')
     print(top_features)
 
-    topk=200
+    topk = 200  # the number of selected features
     topk_in_bound=min(topk,len(list(feature_importance['feature'])))
 
     topk_features = [x for x in list(feature_importance['feature']) if x in train_set.columns][:topk_in_bound]
@@ -446,22 +441,28 @@ if __name__ == '__main__':
     top_features_df.to_csv(path + file_name+'top_features.csv')
     train_fe.to_csv(path + file_name + 'train_fe.csv')
     test_fe.to_csv(path + file_name + 'test_fe.csv')
-
+    ###########################################
+    #######decode feature to final deploy sql###################
     # top_features=test_set.columns.values.tolist()#should be removed if AutoX is in the pipeline
 
     final_sql = myOpenMLDB_sql_generator.decode_time_series_feature_sql_column(list(feature_importance['feature'][:topk_in_bound]))
     print("*" * 25 + "final_sql" + "*" * 25)
     print(final_sql)
-    print("*" * 80)
+    print("*" * 40+"following is the 2st final generated DEPLOY sql with SELECTED FEATURE to send query to OpenMLDB and get processed feature data csv file"+"*"*40)
 
-    ########################
-    # TODO: send query to OpenMLDB and get final top-k feature data csv file
+    ############################################################
+    ### send query to OpenMLDB and get final top-k feature data csv file
     url = 'http://127.0.0.1:9080/dbs/demo_db/deployments/demo_data_service'  # 'http://127.0.0.1:8080/dbs/{db} '
     file_num = 1
     deploy_service_name = "feature_data_test_auto_sql_generator" + str(file_num)
-    deploy_sql = "DEPLOY " + deploy_service_name + " " + final_sql
-    data = ' "sql":deploy_sql, "mode":"online" '
+    deploy_sql=[]
+    deploy_sql.append('USE demo_db;')
+    deploy_sql.append('SET @@execute_mode="online";')
+    deploy_sql.append('SET @@sync_job = "true";')
+    deploy_sql.append("DEPLOY " + deploy_service_name + " " + final_sql)
+    data = {"sql":deploy_sql, "mode":"offsync"}
     headers = {'content-type': 'application/json', 'Accept-Charset': 'UTF-8'}
-    r = requests.post(url, data=data, headers=headers)
-
+    r = requests.post(url, json=data, headers=headers)
+    print("request content")
+    print(r.content)
     ########################
